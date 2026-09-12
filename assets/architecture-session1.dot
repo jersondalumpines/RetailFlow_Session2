@@ -1,0 +1,130 @@
+
+digraph RetailMonFlowArchitecture {
+    graph [
+        rankdir=TB,
+        bgcolor="white",
+        pad="0.35",
+        nodesep="0.55",
+        ranksep="0.75",
+        fontname="Arial",
+        fontsize=16,
+        label="Retail-MonFlow: Session 1 Parallel Compute Architecture",
+        labelloc="t"
+    ];
+
+    node [
+        shape=box,
+        style="rounded,filled",
+        fontname="Arial",
+        fontsize=11,
+        margin="0.22,0.14"
+    ];
+
+    edge [
+        fontname="Arial",
+        fontsize=9
+    ];
+
+    subgraph cluster_source {
+        label="Data Source";
+        style="rounded";
+        color="gray60";
+
+        KAGGLE [
+            label="Kaggle Retail Data Warehouse\n12-table dataset (~1.53M rows)\norder_items, orders, stores,\nproducts, customers, ..."
+            fillcolor="lightblue"
+        ];
+    }
+
+    subgraph cluster_ingest {
+        label="Ingestion Layer";
+        style="rounded";
+        color="gray60";
+
+        LOAD [
+            label="Load CSVs\nPySpark local mode"
+            fillcolor="palegreen"
+        ];
+    }
+
+    subgraph cluster_partition {
+        label="Partitioning";
+        style="rounded";
+        color="gray60";
+
+        PARTKEY [
+            label="Partition Key: category_id\n(30 distinct values)"
+            fillcolor="khaki"
+        ];
+
+        BOUNDED [
+            label="Bounded Parallelism Sweep\n2 / 4 / 8 partitions\n(chosen setting: 4)"
+            fillcolor="khaki"
+        ];
+    }
+
+    subgraph cluster_process {
+        label="Parallel Processing (PySpark)";
+        style="rounded";
+        color="gray60";
+
+        JOIN [
+            label="Join Pipeline\norder_items -> orders\n-> stores -> products"
+            fillcolor="mistyrose"
+        ];
+
+        EXEC [
+            label="Broadcast Joins\n(no shuffle at this scale)"
+            fillcolor="mistyrose"
+        ];
+    }
+
+    subgraph cluster_baseline {
+        label="Baseline Comparison";
+        style="rounded";
+        color="gray60";
+
+        PANDAS [
+            label="Pandas Baseline\n(single-threaded)"
+            fillcolor="lightgrey"
+        ];
+    }
+
+    subgraph cluster_bench {
+        label="Benchmarking";
+        style="rounded";
+        color="gray60";
+
+        BENCH [
+            label="benchmark.py\nmedian runtime capture"
+            fillcolor="lightcyan"
+        ];
+    }
+
+    subgraph cluster_output {
+        label="Outputs";
+        style="rounded";
+        color="gray60";
+
+        RESULTS [
+            label="Results & Metrics\n(runtime, speedup ratios)"
+            fillcolor="wheat"
+        ];
+
+        DOCS [
+            label="docs/\nentity model + architecture diagrams"
+            fillcolor="wheat"
+        ];
+    }
+
+    KAGGLE -> LOAD;
+    LOAD -> PARTKEY;
+    PARTKEY -> BOUNDED;
+    BOUNDED -> JOIN;
+    JOIN -> EXEC;
+    LOAD -> PANDAS [style=dashed, color=gray, label=" no partitioning"];
+    EXEC -> BENCH;
+    PANDAS -> BENCH [style=dashed, color=gray];
+    BENCH -> RESULTS;
+    RESULTS -> DOCS [style=dashed, color=gray];
+}

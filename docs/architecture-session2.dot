@@ -1,0 +1,130 @@
+
+digraph RetailFlowSession2Architecture {
+    graph [
+        rankdir=TB,
+        bgcolor="white",
+        pad="0.35",
+        nodesep="0.55",
+        ranksep="0.75",
+        fontname="Arial",
+        fontsize=16,
+        label="RetailFlow - Session 2 Data Warehouse Architecture",
+        labelloc="t"
+    ];
+
+    node [
+        shape=box,
+        style="rounded,filled",
+        fontname="Arial",
+        fontsize=11,
+        margin="0.22,0.14"
+    ];
+
+    edge [
+        fontname="Arial",
+        fontsize=9,
+        color="#555555"
+    ];
+
+    subgraph cluster_source {
+        label="Source Data";
+        style="rounded";
+        color="gray60";
+
+        CSV [
+            label="CSV / Retail Dataset\nSales • Customers • Stores\nSKUs • Inventory • Promotions",
+            fillcolor="lightblue"
+        ];
+    }
+
+    subgraph cluster_database {
+        label="Session 2 PostgreSQL Database";
+        style="rounded";
+        color="gray60";
+
+        DB [
+            label="RetailFlow PostgreSQL\nRelational Data Warehouse",
+            fillcolor="palegreen"
+        ];
+
+        TABLES [
+            label="BM_* Tables\nBM_SALES\nBM_CUSTOMERS • BM_STORES • BM_SKUS\nBM_INVENTORY • BM_PROMOTIONS",
+            fillcolor="palegreen"
+        ];
+    }
+
+    subgraph cluster_model {
+        label="Data Model / Relationships";
+        style="rounded";
+        color="gray60";
+
+        STAR [
+            label="Star-style Analytical Model\nBM_SALES as central fact table\nDimensions: Customer • Store • SKU • Promotion",
+            fillcolor="khaki"
+        ];
+
+        INV [
+            label="Inventory Analysis\nStore × SKU × Snapshot Date",
+            fillcolor="khaki"
+        ];
+    }
+
+    subgraph cluster_sql {
+        label="SQL Analytics Layer";
+        style="rounded";
+        color="gray60";
+
+        QUERIES [
+            label="PostgreSQL Queries\nJOIN • GROUP BY • Aggregation\nFiltering • KPI calculation",
+            fillcolor="mistyrose"
+        ];
+    }
+
+    subgraph cluster_output {
+        label="Output / Presentation";
+        style="rounded";
+        color="gray60";
+
+        KPI [
+            label="Retail KPIs\nRevenue • Quantity Sold\nAverage Value • Discounts\nInventory Levels",
+            fillcolor="wheat"
+        ];
+
+        GUI [
+            label="RetailFlow GUI / Dashboard\nTables • Charts • Analysis",
+            fillcolor="wheat"
+        ];
+    }
+
+    CSV -> DB [
+        label=" load / import"
+    ];
+
+    DB -> TABLES [
+        label=" stores data"
+    ];
+
+    TABLES -> STAR [
+        label=" PK / FK relationships"
+    ];
+
+    TABLES -> INV [
+        label=" inventory relationships"
+    ];
+
+    STAR -> QUERIES [
+        label=" analytical SQL"
+    ];
+
+    INV -> QUERIES [
+        label=" inventory SQL"
+    ];
+
+    QUERIES -> KPI [
+        label=" calculated results"
+    ];
+
+    KPI -> GUI [
+        label=" visualization"
+    ];
+}

@@ -1,0 +1,295 @@
+
+digraph RetailFlow {
+    graph [
+        rankdir=LR,
+        bgcolor="white",
+        pad="0.35",
+        nodesep="0.6",
+        ranksep="1.0"
+    ];
+
+    node [
+        shape=plain,
+        fontname="Arial"
+    ];
+
+    edge [
+        fontname="Arial",
+        fontsize=10
+    ];
+
+
+    SALES [
+        label=<
+        <TABLE BORDER="1" CELLBORDER="0"
+               CELLSPACING="0" CELLPADDING="7">
+
+            <TR>
+                <TD BGCOLOR="lightblue">
+                    <B>BM_SALES</B><BR/>
+                    <FONT POINT-SIZE="10">
+                    Transaction / Fact Table
+                    </FONT>
+                </TD>
+            </TR>
+
+            <TR>
+                <TD ALIGN="LEFT">
+
+                    <B>date</B><BR/>
+
+                    <B>store_id (FK)</B><BR/>
+                    <B>sku_id (FK)</B><BR/>
+                    <B>customer_id (FK)</B><BR/>
+
+                    quantity<BR/>
+                    unit_price<BR/>
+                    total_value<BR/>
+                    channel<BR/>
+                    discount_pct
+
+                </TD>
+            </TR>
+
+        </TABLE>
+        >
+    ];
+
+
+    CUSTOMERS [
+        label=<
+        <TABLE BORDER="1" CELLBORDER="0"
+               CELLSPACING="0" CELLPADDING="7">
+
+            <TR>
+                <TD BGCOLOR="palegreen">
+
+                    <B>BM_CUSTOMERS</B><BR/>
+
+                    <FONT POINT-SIZE="10">
+                    Customer Dimension
+                    </FONT>
+
+                </TD>
+            </TR>
+
+            <TR>
+                <TD ALIGN="LEFT">
+
+                    <B>cust_id (PK)</B><BR/>
+
+                    age<BR/>
+                    gender<BR/>
+                    city<BR/>
+                    loyalty_segment<BR/>
+                    preferred_channel<BR/>
+                    registration_date
+
+                </TD>
+            </TR>
+
+        </TABLE>
+        >
+    ];
+
+
+    STORES [
+        label=<
+        <TABLE BORDER="1"
+               CELLBORDER="0"
+               CELLSPACING="0"
+               CELLPADDING="7">
+
+            <TR>
+                <TD BGCOLOR="palegreen">
+
+                    <B>BM_STORES</B><BR/>
+
+                    <FONT POINT-SIZE="10">
+                    Store Dimension
+                    </FONT>
+
+                </TD>
+            </TR>
+
+            <TR>
+                <TD ALIGN="LEFT">
+
+                    <B>store_id (PK)</B><BR/>
+
+                    store_name<BR/>
+                    city<BR/>
+                    store_type<BR/>
+                    opening_date
+
+                </TD>
+            </TR>
+
+        </TABLE>
+        >
+    ];
+
+
+    SKUS [
+        label=<
+        <TABLE BORDER="1"
+               CELLBORDER="0"
+               CELLSPACING="0"
+               CELLPADDING="7">
+
+            <TR>
+                <TD BGCOLOR="palegreen">
+
+                    <B>BM_SKUS</B><BR/>
+
+                    <FONT POINT-SIZE="10">
+                    Product Dimension
+                    </FONT>
+
+                </TD>
+            </TR>
+
+            <TR>
+                <TD ALIGN="LEFT">
+
+                    <B>sku_id (PK)</B><BR/>
+
+                    sku_name<BR/>
+                    category<BR/>
+                    subcategory<BR/>
+                    unit_price<BR/>
+                    cost_price<BR/>
+                    brand
+
+                </TD>
+            </TR>
+
+        </TABLE>
+        >
+    ];
+
+
+    INVENTORY [
+        label=<
+        <TABLE BORDER="1"
+               CELLBORDER="0"
+               CELLSPACING="0"
+               CELLPADDING="7">
+
+            <TR>
+                <TD BGCOLOR="khaki">
+
+                    <B>BM_INVENTORY</B><BR/>
+
+                    <FONT POINT-SIZE="10">
+                    Inventory Snapshot / Event
+                    </FONT>
+
+                </TD>
+            </TR>
+
+            <TR>
+                <TD ALIGN="LEFT">
+
+                    <B>store_id (FK)</B><BR/>
+                    <B>sku_id (FK)</B><BR/>
+
+                    stock_on_hand<BR/>
+                    reorder_point<BR/>
+                    safety_stock<BR/>
+                    last_restock_date<BR/>
+                    snapshot_date
+
+                </TD>
+            </TR>
+
+        </TABLE>
+        >
+    ];
+
+
+    PROMOTIONS [
+        label=<
+        <TABLE BORDER="1"
+               CELLBORDER="0"
+               CELLSPACING="0"
+               CELLPADDING="7">
+
+            <TR>
+                <TD BGCOLOR="mistyrose">
+
+                    <B>BM_PROMOTIONS</B><BR/>
+
+                    <FONT POINT-SIZE="10">
+                    Promotion Dimension
+                    </FONT>
+
+                </TD>
+            </TR>
+
+            <TR>
+                <TD ALIGN="LEFT">
+
+                    <B>promo_id (PK)</B><BR/>
+
+                    promo_name<BR/>
+                    start_date<BR/>
+                    end_date<BR/>
+                    discount_pct<BR/>
+                    promo_type
+
+                </TD>
+            </TR>
+
+        </TABLE>
+        >
+    ];
+
+
+    CUSTOMERS -> SALES [
+        dir=both
+        arrowtail=tee
+        arrowhead=crow
+        label=" cust_id = customer_id\n1 : many"
+    ];
+
+
+    STORES -> SALES [
+        dir=both
+        arrowtail=tee
+        arrowhead=crow
+        label=" store_id\n1 : many"
+    ];
+
+
+    SKUS -> SALES [
+        dir=both
+        arrowtail=tee
+        arrowhead=crow
+        label=" sku_id\n1 : many"
+    ];
+
+
+    STORES -> INVENTORY [
+        dir=both
+        arrowtail=tee
+        arrowhead=crow
+        label=" store_id\n1 : many"
+    ];
+
+
+    SKUS -> INVENTORY [
+        dir=both
+        arrowtail=tee
+        arrowhead=crow
+        label=" sku_id\n1 : many"
+    ];
+
+
+    PROMOTIONS -> SALES [
+        style=dashed
+        color=gray
+        label=" date-range / discount matching\n(no promo_id in sales)"
+    ];
+
+}
