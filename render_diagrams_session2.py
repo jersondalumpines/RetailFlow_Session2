@@ -1,252 +1,196 @@
+#!/usr/bin/env python3
+"""
+render_diagrams.py -- Session 2 (CMA-Flow Event Streaming)
+============================================================
+Renders two Graphviz diagrams that document the Session 2 event
+streaming pipeline, in the same style/tooling as Session 1's
+render_diagrams.py:
+
+  1. entity-model-session2.png
+     The topic / partition / consumer-group entity relationships:
+     one topic hash-partitioned into 4 partitions, read independently
+     by 3 consumer groups, each tracking its own offsets.
+
+  2. architecture-session2.png
+     The end-to-end pipeline: producer -> durable log -> parallel
+     consumers -> reconciliation against Session 1's batch answer,
+     plus the failure/recovery and replay demonstrations the console
+     app (cma_flow_session2.py) exercises.
+
+Requires Graphviz's `dot` command to be on PATH. No other
+third-party packages are needed.
+
+Run with:
+    python render_diagrams.py
+"""
+
 from pathlib import Path
-import os
-import shutil
 import subprocess
 import sys
-
-# ============================================================
-# RetailFlow - Session 2 Diagram Renderer
-# Generates:
-#   1. Entity Relationship Diagram (ERD)
-#   2. Session 2 System / Data Architecture Diagram
-#
-# Requirements:
-#   - Python 3.x
-#   - Graphviz installed
-#
-# The diagrams are based on the BM_* tables represented in the
-# previous diagram script:
-#   BM_SALES, BM_CUSTOMERS, BM_STORES, BM_SKUS,
-#   BM_INVENTORY, BM_PROMOTIONS
-# ============================================================
+import shutil
 
 BASE_DIR = Path(__file__).resolve().parent
 DOCS_OUT = BASE_DIR / "docs"
 DOCS_OUT.mkdir(parents=True, exist_ok=True)
 
+# ---------------------------------------------------------------
+# Figures pulled from cma_flow_session2.py, duplicated here as
+# plain constants so this script has no import-time dependency on
+# Tkinter (the console app imports tkinter at module scope).
+# Keep these in sync if the console's numbers ever change.
+# ---------------------------------------------------------------
+TOTAL_EVENTS = 641_843
+REGIONS = 50
+PARTITIONS = [
+    {"id": 0, "events": 182_711, "pct": 28.5},
+    {"id": 1, "events": 115_960, "pct": 18.1},
+    {"id": 2, "events": 229_780, "pct": 35.8},
+    {"id": 3, "events": 113_392, "pct": 17.7},
+]
+CONSUMERS = [
+    {"name": "revenue-projector", "seconds": 20.628, "throughput": 31_115},
+    {"name": "audit-writer", "seconds": 41.841, "throughput": 15_340},
+    {"name": "high-value-alerter", "seconds": 21.090, "throughput": 30_434},
+]
+PARTITION_SKEW = "2.03 : 1"
+PRODUCE_ELAPSED = "53.067 s"
+LOG_SIZE = "302.7 MB"
 
-# ------------------------------------------------------------
-# SESSION 2 ENTITY / ER DIAGRAM
-# ------------------------------------------------------------
-ENTITY = r"""
-digraph RetailFlowSession2ERD {
+
+# =================================================================
+# 1. ENTITY MODEL -- topic / partitions / consumer groups
+# =================================================================
+def build_entity_dot():
+    partition_rows = "".join(
+        f'<TR><TD ALIGN="LEFT">partition {p["id"]}</TD>'
+        f'<TD ALIGN="RIGHT">{p["events"]:,}</TD>'
+        f'<TD ALIGN="RIGHT">{p["pct"]}%</TD></TR>'
+        for p in PARTITIONS
+    )
+
+    consumer_rows = "".join(
+        f'<TR><TD ALIGN="LEFT">{c["name"]}</TD>'
+        f'<TD ALIGN="RIGHT">{c["throughput"]:,}/s</TD>'
+        f'<TD ALIGN="RIGHT">{c["seconds"]:.3f} s</TD></TR>'
+        for c in CONSUMERS
+    )
+
+    return f"""
+digraph CMAFlowEntities {{
     graph [
         rankdir=LR,
         bgcolor="white",
         pad="0.35",
-        nodesep="0.65",
-        ranksep="1.0",
-        fontname="Arial",
-        labelloc="t",
-        label="RetailFlow - Session 2 Entity Relationship Diagram",
-        fontsize=18
-    ];
-
-    node [
-        shape=plain,
+        nodesep="0.7",
+        ranksep="1.1",
         fontname="Arial"
     ];
 
-    edge [
-        fontname="Arial",
-        fontsize=10,
-        color="#555555"
-    ];
+    node [shape=plain, fontname="Arial"];
+    edge [fontname="Arial", fontsize=10];
 
-    SALES [
+    TOPIC [
         label=<
         <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="7">
             <TR>
                 <TD BGCOLOR="lightblue">
-                    <B>BM_SALES</B><BR/>
-                    <FONT POINT-SIZE="10">Transaction / Fact Table</FONT>
+                    <B>TOPIC: transaction.recorded</B><BR/>
+                    <FONT POINT-SIZE="10">Durable, append-only event log</FONT>
                 </TD>
             </TR>
             <TR>
                 <TD ALIGN="LEFT">
-                    <B>sale_id (PK)</B><BR/>
-                    date<BR/>
-                    <B>store_id (FK)</B><BR/>
-                    <B>sku_id (FK)</B><BR/>
-                    <B>customer_id (FK)</B><BR/>
-                    quantity<BR/>
-                    unit_price<BR/>
-                    total_value<BR/>
-                    channel<BR/>
-                    discount_pct
+                    <B>key</B>: region ({REGIONS} distinct values)<BR/>
+                    <B>partitions</B>: {len(PARTITIONS)}<BR/>
+                    <B>total events</B>: {TOTAL_EVENTS:,}<BR/>
+                    <B>log size</B>: {LOG_SIZE}<BR/>
+                    <B>partition skew</B>: {PARTITION_SKEW}
                 </TD>
             </TR>
         </TABLE>
         >
     ];
 
-    CUSTOMERS [
+    PARTITIONS [
         label=<
-        <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="7">
+        <TABLE BORDER="1" CELLBORDER="1" CELLSPACING="0" CELLPADDING="6">
             <TR>
-                <TD BGCOLOR="palegreen">
-                    <B>BM_CUSTOMERS</B><BR/>
-                    <FONT POINT-SIZE="10">Customer Dimension</FONT>
+                <TD BGCOLOR="khaki" COLSPAN="3"><B>PARTITIONS</B><BR/>
+                    <FONT POINT-SIZE="10">hash(region) mod 4</FONT>
                 </TD>
             </TR>
             <TR>
-                <TD ALIGN="LEFT">
-                    <B>cust_id (PK)</B><BR/>
-                    age<BR/>
-                    gender<BR/>
-                    city<BR/>
-                    loyalty_segment<BR/>
-                    preferred_channel<BR/>
-                    registration_date
-                </TD>
+                <TD ALIGN="LEFT"><B>Partition</B></TD>
+                <TD ALIGN="RIGHT"><B>Events</B></TD>
+                <TD ALIGN="RIGHT"><B>Share</B></TD>
             </TR>
+            {partition_rows}
         </TABLE>
         >
     ];
 
-    STORES [
+    CONSUMER_GROUPS [
         label=<
-        <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="7">
+        <TABLE BORDER="1" CELLBORDER="1" CELLSPACING="0" CELLPADDING="6">
             <TR>
-                <TD BGCOLOR="palegreen">
-                    <B>BM_STORES</B><BR/>
-                    <FONT POINT-SIZE="10">Store Dimension</FONT>
+                <TD BGCOLOR="palegreen" COLSPAN="3"><B>CONSUMER GROUPS</B><BR/>
+                    <FONT POINT-SIZE="10">each reads all 4 partitions, own offsets</FONT>
                 </TD>
             </TR>
             <TR>
-                <TD ALIGN="LEFT">
-                    <B>store_id (PK)</B><BR/>
-                    store_name<BR/>
-                    city<BR/>
-                    store_type<BR/>
-                    opening_date
-                </TD>
+                <TD ALIGN="LEFT"><B>Group</B></TD>
+                <TD ALIGN="RIGHT"><B>Throughput</B></TD>
+                <TD ALIGN="RIGHT"><B>Elapsed</B></TD>
             </TR>
+            {consumer_rows}
         </TABLE>
         >
     ];
 
-    SKUS [
-        label=<
-        <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="7">
-            <TR>
-                <TD BGCOLOR="palegreen">
-                    <B>BM_SKUS</B><BR/>
-                    <FONT POINT-SIZE="10">Product Dimension</FONT>
-                </TD>
-            </TR>
-            <TR>
-                <TD ALIGN="LEFT">
-                    <B>sku_id (PK)</B><BR/>
-                    sku_name<BR/>
-                    category<BR/>
-                    subcategory<BR/>
-                    unit_price<BR/>
-                    cost_price<BR/>
-                    brand
-                </TD>
-            </TR>
-        </TABLE>
-        >
-    ];
-
-    INVENTORY [
-        label=<
-        <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="7">
-            <TR>
-                <TD BGCOLOR="khaki">
-                    <B>BM_INVENTORY</B><BR/>
-                    <FONT POINT-SIZE="10">Inventory Snapshot</FONT>
-                </TD>
-            </TR>
-            <TR>
-                <TD ALIGN="LEFT">
-                    <B>inventory_id (PK)</B><BR/>
-                    <B>store_id (FK)</B><BR/>
-                    <B>sku_id (FK)</B><BR/>
-                    stock_on_hand<BR/>
-                    reorder_point<BR/>
-                    safety_stock<BR/>
-                    last_restock_date<BR/>
-                    snapshot_date
-                </TD>
-            </TR>
-        </TABLE>
-        >
-    ];
-
-    PROMOTIONS [
+    RECONCILIATION [
         label=<
         <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="7">
             <TR>
                 <TD BGCOLOR="mistyrose">
-                    <B>BM_PROMOTIONS</B><BR/>
-                    <FONT POINT-SIZE="10">Promotion Dimension</FONT>
+                    <B>SESSION 1 BATCH ANSWER</B><BR/>
+                    <FONT POINT-SIZE="10">results/session1_benchmark.csv</FONT>
                 </TD>
             </TR>
             <TR>
                 <TD ALIGN="LEFT">
-                    <B>promo_id (PK)</B><BR/>
-                    promo_name<BR/>
-                    start_date<BR/>
-                    end_date<BR/>
-                    discount_pct<BR/>
-                    promo_type
+                    {REGIONS} regions &middot; {TOTAL_EVENTS:,} rows<BR/>
+                    compared against the stream on:<BR/>
+                    region set, record count, revenue mean
                 </TD>
             </TR>
         </TABLE>
         >
     ];
 
-    CUSTOMERS -> SALES [
-        dir=both,
-        arrowtail=tee,
-        arrowhead=crow,
-        label=" cust_id = customer_id\n1 : many"
+    TOPIC -> PARTITIONS [
+        dir=both, arrowtail=tee, arrowhead=crow,
+        label=" hash-partitioned\\n1 : {len(PARTITIONS)}"
     ];
 
-    STORES -> SALES [
-        dir=both,
-        arrowtail=tee,
-        arrowhead=crow,
-        label=" store_id\n1 : many"
+    PARTITIONS -> CONSUMER_GROUPS [
+        dir=both, arrowtail=crow, arrowhead=crow,
+        label=" independent offsets\\n{len(PARTITIONS)} : {len(CONSUMERS)}"
     ];
 
-    SKUS -> SALES [
-        dir=both,
-        arrowtail=tee,
-        arrowhead=crow,
-        label=" sku_id\n1 : many"
+    CONSUMER_GROUPS -> RECONCILIATION [
+        style=dashed, color=gray,
+        label=" revenue-projector output\\nvs Session 1 batch"
     ];
-
-    STORES -> INVENTORY [
-        dir=both,
-        arrowtail=tee,
-        arrowhead=crow,
-        label=" store_id\n1 : many"
-    ];
-
-    SKUS -> INVENTORY [
-        dir=both,
-        arrowtail=tee,
-        arrowhead=crow,
-        label=" sku_id\n1 : many"
-    ];
-
-    PROMOTIONS -> SALES [
-        style=dashed,
-        color="#888888",
-        label=" date range / discount matching\n(no promo_id FK shown)"
-    ];
-}
+}}
 """
 
 
-# ------------------------------------------------------------
-# SESSION 2 ARCHITECTURE DIAGRAM
-# ------------------------------------------------------------
-ARCHITECTURE = r"""
-digraph RetailFlowSession2Architecture {
+# =================================================================
+# 2. ARCHITECTURE -- end-to-end pipeline
+# =================================================================
+def build_architecture_dot():
+    return f"""
+digraph CMAFlowArchitecture {{
     graph [
         rankdir=TB,
         bgcolor="white",
@@ -255,7 +199,7 @@ digraph RetailFlowSession2Architecture {
         ranksep="0.75",
         fontname="Arial",
         fontsize=16,
-        label="RetailFlow - Session 2 Data Warehouse Architecture",
+        label="CMA-Flow: Session 2 Event Streaming Architecture",
         labelloc="t"
     ];
 
@@ -267,243 +211,171 @@ digraph RetailFlowSession2Architecture {
         margin="0.22,0.14"
     ];
 
-    edge [
-        fontname="Arial",
-        fontsize=9,
-        color="#555555"
-    ];
+    edge [fontname="Arial", fontsize=9];
 
-    subgraph cluster_source {
-        label="Source Data";
+    subgraph cluster_source {{
+        label="Source";
         style="rounded";
         color="gray60";
 
-        CSV [
-            label="CSV / Retail Dataset\nSales • Customers • Stores\nSKUs • Inventory • Promotions",
+        SOURCE [
+            label="Session 1 working dataset\\n{TOTAL_EVENTS:,} sales transactions\\n(bm_sales.csv, joined)"
             fillcolor="lightblue"
         ];
-    }
+    }}
 
-    subgraph cluster_database {
-        label="Session 2 PostgreSQL Database";
+    subgraph cluster_produce {{
+        label="Producer";
         style="rounded";
         color="gray60";
 
-        DB [
-            label="RetailFlow PostgreSQL\nRelational Data Warehouse",
+        PRODUCE [
+            label="producer.py\\nappend to topic.transaction.recorded\\nkey = region"
             fillcolor="palegreen"
         ];
-
-        TABLES [
-            label="BM_* Tables\nBM_SALES\nBM_CUSTOMERS • BM_STORES • BM_SKUS\nBM_INVENTORY • BM_PROMOTIONS",
+        PARTITION [
+            label="Hash-partition into 4\\nskew {PARTITION_SKEW} (50 regions -> 4 partitions)\\n{PRODUCE_ELAPSED} &middot; {LOG_SIZE}"
             fillcolor="palegreen"
         ];
-    }
+    }}
 
-    subgraph cluster_model {
-        label="Data Model / Relationships";
+    subgraph cluster_log {{
+        label="Durable Log";
         style="rounded";
         color="gray60";
 
-        STAR [
-            label="Star-style Analytical Model\nBM_SALES as central fact table\nDimensions: Customer • Store • SKU • Promotion",
+        LOG [
+            label="Append-only, replayable log\\n{TOTAL_EVENTS:,} events durable\\noffsets are positions, not timestamps"
             fillcolor="khaki"
         ];
+    }}
 
-        INV [
-            label="Inventory Analysis\nStore × SKU × Snapshot Date",
-            fillcolor="khaki"
-        ];
-    }
-
-    subgraph cluster_sql {
-        label="SQL Analytics Layer";
+    subgraph cluster_consume {{
+        label="Consumers (parallel, independent offsets)";
         style="rounded";
         color="gray60";
 
-        QUERIES [
-            label="PostgreSQL Queries\nJOIN • GROUP BY • Aggregation\nFiltering • KPI calculation",
-            fillcolor="mistyrose"
-        ];
-    }
+        REV [label="revenue-projector\\nregional revenue rebuild" fillcolor="mistyrose"];
+        AUD [label="audit-writer\\nappend-only audit trail (I/O bound)" fillcolor="mistyrose"];
+        ALERT [label="high-value-alerter\\nflags transactions > 900.00" fillcolor="mistyrose"];
+    }}
 
-    subgraph cluster_output {
-        label="Output / Presentation";
+    subgraph cluster_failure {{
+        label="Failure & Recovery";
         style="rounded";
         color="gray60";
 
-        KPI [
-            label="Retail KPIs\nRevenue • Quantity Sold\nAverage Value • Discounts\nInventory Levels",
+        CRASH [label="Inject crash on audit-writer\\nbacklog left in log" fillcolor="lightgrey"];
+        RECOVER [label="Resume from last committed offset\\nat-least-once redelivery" fillcolor="lightgrey"];
+    }}
+
+    subgraph cluster_replay {{
+        label="Replay";
+        style="rounded";
+        color="gray60";
+
+        REPLAY [
+            label="New / offline / rewound consumers\\nread history from offset 0\\nor a partial timestamp scan"
+            fillcolor="lightcyan"
+        ];
+    }}
+
+    subgraph cluster_reconcile {{
+        label="Reconciliation";
+        style="rounded";
+        color="gray60";
+
+        RECONCILE [
+            label="reconcile.py\\nstream vs Session 1 batch\\nregion set, count, revenue mean"
             fillcolor="wheat"
         ];
+    }}
 
-        GUI [
-            label="RetailFlow GUI / Dashboard\nTables • Charts • Analysis",
-            fillcolor="wheat"
+    subgraph cluster_output {{
+        label="Outputs";
+        style="rounded";
+        color="gray60";
+
+        RESULTS [
+            label="results/\\nthroughput, lag, reconciliation report"
+            fillcolor="lightyellow"
         ];
-    }
+        DOCS [
+            label="docs/\\nentity model + architecture diagrams"
+            fillcolor="lightyellow"
+        ];
+    }}
 
-    CSV -> DB [
-        label=" load / import"
-    ];
+    SOURCE -> PRODUCE;
+    PRODUCE -> PARTITION;
+    PARTITION -> LOG;
 
-    DB -> TABLES [
-        label=" stores data"
-    ];
+    LOG -> REV;
+    LOG -> AUD;
+    LOG -> ALERT;
 
-    TABLES -> STAR [
-        label=" PK / FK relationships"
-    ];
+    AUD -> CRASH [style=dashed, color=gray, label=" fail after N events"];
+    CRASH -> RECOVER;
+    RECOVER -> AUD [style=dashed, color=gray, label=" lag returns to 0"];
 
-    TABLES -> INV [
-        label=" inventory relationships"
-    ];
+    LOG -> REPLAY [style=dashed, color=gray, label=" offset 0 / partial scan"];
 
-    STAR -> QUERIES [
-        label=" analytical SQL"
-    ];
-
-    INV -> QUERIES [
-        label=" inventory SQL"
-    ];
-
-    QUERIES -> KPI [
-        label=" calculated results"
-    ];
-
-    KPI -> GUI [
-        label=" visualization"
-    ];
-}
+    REV -> RECONCILE;
+    RECONCILE -> RESULTS;
+    REPLAY -> RESULTS [style=dashed, color=gray];
+    CRASH -> RESULTS [style=dashed, color=gray, label=" blast-radius evidence"];
+    RESULTS -> DOCS [style=dashed, color=gray];
+}}
 """
 
 
-# ------------------------------------------------------------
-# GRAPHVIZ DISCOVERY
-# ------------------------------------------------------------
-def find_graphviz():
-    """Find Graphviz dot.exe on Windows or Unix-like systems."""
-
-    dot = shutil.which("dot")
-    if dot:
-        return dot
-
-    if os.name == "nt":
-        possible_paths = [
-            r"C:\Program Files\Graphviz\bin\dot.exe",
-            r"C:\Program Files (x86)\Graphviz\bin\dot.exe",
-        ]
-
-        # Also check common installed Graphviz directories.
-        for root in (
-            Path(r"C:\Program Files\Graphviz"),
-            Path(r"C:\Program Files (x86)\Graphviz"),
-        ):
-            if root.exists():
-                matches = list(root.glob("*/bin/dot.exe"))
-                if matches:
-                    return str(matches[0])
-
-        for path in possible_paths:
-            if Path(path).exists():
-                return path
-
-    return None
-
-
-# ------------------------------------------------------------
-# RENDER FUNCTION
-# ------------------------------------------------------------
-def render(dot_source, output_png, dot_command):
-    """Write DOT source and render it to PNG."""
+# =================================================================
+# Rendering helper (same approach as Session 1's render_diagrams.py)
+# =================================================================
+def render(dot_source, output_png):
+    if shutil.which("dot") is None:
+        print("\nERROR: Graphviz 'dot' command was not found.")
+        print("Install Graphviz and add its bin folder to your PATH.")
+        print("Windows example PATH entry:")
+        print(r"C:\Program Files\Graphviz\bin")
+        return False
 
     dot_file = output_png.with_suffix(".dot")
-
     dot_file.write_text(dot_source, encoding="utf-8")
 
     try:
-        result = subprocess.run(
-            [
-                dot_command,
-                "-Tpng",
-                "-Gdpi=150",
-                str(dot_file),
-                "-o",
-                str(output_png),
-            ],
+        subprocess.run(
+            ["dot", "-Tpng", "-Gdpi=150", str(dot_file), "-o", str(output_png)],
             check=True,
-            capture_output=True,
-            text=True,
         )
-
-        print(f"Diagram successfully created:")
-        print(f"  PNG : {output_png}")
-        print(f"  DOT : {dot_file}")
-
-        if result.stderr.strip():
-            print("\nGraphviz message:")
-            print(result.stderr.strip())
-
+        print(f"\nDiagram successfully created:")
+        print(output_png)
         return True
-
+    except FileNotFoundError:
+        print("\nERROR: Graphviz was not found.")
+        print("Make sure Graphviz is installed and 'dot' is in PATH.")
+        return False
     except subprocess.CalledProcessError as error:
         print("\nERROR: Graphviz failed to render the diagram.")
-        if error.stderr:
-            print(error.stderr)
-        return False
-
-    except OSError as error:
-        print("\nERROR: Could not execute Graphviz.")
         print(error)
         return False
 
 
-# ------------------------------------------------------------
-# MAIN
-# ------------------------------------------------------------
 def main():
-    print("=" * 70)
-    print("RetailFlow - Session 2 Diagram Renderer")
-    print("=" * 70)
-
-    dot_command = find_graphviz()
-
-    if not dot_command:
-        print("\nERROR: Graphviz 'dot' executable was not found.")
-        print("\nInstall Graphviz, then restart VS Code.")
-        print("Official installer: https://graphviz.org/download/")
-        print("\nIf Graphviz is already installed, add this folder to PATH:")
-        print(r"C:\Program Files\Graphviz\bin")
-        return 1
-
-    print(f"\nGraphviz found: {dot_command}")
+    print("=" * 60)
+    print("CMA-Flow Session 2 Diagram Renderer")
+    print("=" * 60)
 
     entity_output = DOCS_OUT / "entity-model-session2.png"
     architecture_output = DOCS_OUT / "architecture-session2.png"
 
-    entity_success = render(
-        ENTITY,
-        entity_output,
-        dot_command
-    )
-
-    architecture_success = render(
-        ARCHITECTURE,
-        architecture_output,
-        dot_command
-    )
+    entity_success = render(build_entity_dot(), entity_output)
+    architecture_success = render(build_architecture_dot(), architecture_output)
 
     if entity_success and architecture_success:
-        print("\n" + "=" * 70)
-        print("SESSION 2 RENDERING COMPLETED SUCCESSFULLY")
-        print("=" * 70)
-        print(f"\nOutput folder: {DOCS_OUT}")
-        print(f"1. {entity_output.name}")
-        print(f"2. {architecture_output.name}")
-        print("\nThe corresponding .dot files were also saved.")
+        print("\nRendering completed successfully.")
         return 0
 
-    print("\nSESSION 2 RENDERING FAILED.")
     return 1
 
 
